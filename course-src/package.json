@@ -1,0 +1,19 @@
+{
+  "name": "select-again-sql-course",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/",
+    "verify": "node tools/compile.mjs",
+    "build": "node tools/compile.mjs && node build.mjs",
+    "e2e": "node tools/e2e.mjs"
+  },
+  "dependencies": {
+    "codemirror": "^5.65.21",
+    "marked": "^18.0.14",
+    "sql.js": "^1.14.2"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  }
+}
