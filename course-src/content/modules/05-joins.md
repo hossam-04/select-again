@@ -79,7 +79,7 @@ GROUP BY c.customer_id, c.name
 ORDER BY orders_2025 DESC, c.name;
 ```
 
-:::gotcha
+:::gotcha Where LEFT JOIN conditions go
 Conditions on the **left** table of a LEFT JOIN belong in WHERE. Conditions on the **right** table almost always belong in ON. If you see `LEFT JOIN t … WHERE t.col = …`, something is probably wrong. The one exception is `WHERE t.id IS NULL`, which is the anti-join below.
 :::
 
@@ -203,7 +203,7 @@ Before joining, state what one row of the result will be. After joining, check t
 - [ ] `SUM(1)`
 > The unmatched department still produces one row with NULL employee columns. `COUNT(*)` and `COUNT(d.dept_id)` count that row, while `COUNT(e.emp_id)` skips the NULL.
 
-? Which query finds customers with no orders **safely** even if `orders.customer_id` contains NULLs?
+? Which query finds customers with no orders **safely** even if `orders.customer_id` contains NULLs? {nooptions}
 - [ ] `WHERE customer_id NOT IN (SELECT customer_id FROM orders)`
 - [x] `WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)`
 - [ ] `JOIN orders o ON o.customer_id <> c.customer_id`

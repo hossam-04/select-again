@@ -157,7 +157,7 @@ ORDER BY category, price DESC;
 
 `NTILE(n)` splits ordered rows into n buckets (quartiles, deciles), and `PERCENT_RANK()` / `CUME_DIST()` give relative positions from 0 to 1.
 
-:::dialect
+:::dialect Window functions across databases
 Window functions arrived in **MySQL 8.0** and SQLite 3.25, and have been in PostgreSQL and SQL Server for much longer. PostgreSQL adds `FILTER (WHERE …)` on aggregates and `QUALIFY`-style filtering needs a subquery everywhere except Snowflake, BigQuery and DuckDB. MySQL supports `RANGE` frames with date intervals: `RANGE BETWEEN INTERVAL 6 DAY PRECEDING AND CURRENT ROW`.
 :::
 

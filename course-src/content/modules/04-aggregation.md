@@ -59,7 +59,7 @@ GROUP BY month            -- MySQL allows the SELECT alias here
 ORDER BY month;
 ```
 
-:::key The golden rule of grouping
+:::key The golden rule of grouping {ask: What is the rule, and what is the one exception?}
 After `GROUP BY`, every column in SELECT must be either **in the GROUP BY** or **inside an aggregate**. Otherwise, which row's value would it show? MySQL enforces this with `ONLY_FULL_GROUP_BY` (on by default since 5.7, and on at LeetCode). The one exception is a column *determined* by the grouped primary key: after `GROUP BY d.dept_id` you may select `d.name`.
 :::
 
@@ -147,7 +147,7 @@ ORDER BY n DESC, category;
 MySQL silently truncates `GROUP_CONCAT` results at `group_concat_max_len` bytes, which defaults to **1024**. Long lists get cut off without an error. Raise it per session with `SET SESSION group_concat_max_len = 100000;` before relying on long lists.
 :::
 
-:::dialect
+:::dialect GROUP_CONCAT elsewhere
 PostgreSQL uses `string_agg(name, ', ' ORDER BY price DESC)`, and SQL Server 2017+ uses `STRING_AGG(name, ', ') WITHIN GROUP (ORDER BY price DESC)`. Both have `FILTER (WHERE …)` or `CASE` for conditional aggregates. PostgreSQL enforces the grouping rule just like `ONLY_FULL_GROUP_BY`.
 :::
 

@@ -45,7 +45,7 @@ CREATE INDEX idx_orders_customer ON orders (customer_id);
 EXPLAIN SELECT * FROM orders WHERE customer_id = 9;
 ```
 
-:::tip EXPLAIN ANALYZE
+:::tip EXPLAIN ANALYZE {card} {ask: What does EXPLAIN ANALYZE do differently from EXPLAIN?}
 MySQL 8.0.18+ has `EXPLAIN ANALYZE`, which actually runs the query and reports real row counts and timings per step. It's the fastest way to find which step is slow. `EXPLAIN FORMAT=TREE` gives the same tree without running anything.
 :::
 
@@ -92,7 +92,7 @@ CREATE INDEX idx_orders_cust_date ON orders (customer_id, order_date);
 EXPLAIN SELECT * FROM orders WHERE order_date >= '2024-06-01';
 ```
 
-:::key Rule of thumb
+:::key Rule of thumb {ask: In what order do the columns of a composite index go?}
 Put **equality** columns first, then the **range** or **sort** column. `(customer_id, order_date)` serves "this customer's orders since June, newest first" with a single seek and no sort. `(order_date, customer_id)` doesn't.
 :::
 
@@ -139,7 +139,7 @@ EXPLAIN SELECT order_id, order_date FROM orders ORDER BY order_date DESC LIMIT 5
 ## Quick check
 
 :::quiz
-? An index on `(last_name, first_name)` can speed up which query?
+? An index on `(last_name, first_name)` can speed up which query? {options}
 - [x] `WHERE last_name = 'Chen' AND first_name LIKE 'L%'`
 - [ ] `WHERE first_name = 'Lina'`
 - [ ] `WHERE CONCAT(last_name, first_name) = 'ChenLina'`

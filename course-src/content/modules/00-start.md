@@ -145,7 +145,7 @@ Answer quickly and honestly. Each explanation points to the module that covers t
 - [ ] SERIALIZABLE
 > Review: [[m:modifying|Changing data]].
 
-? Which condition can use an index on `created_at`?
+? Which condition can use an index on `created_at`? {options}
 - [ ] `YEAR(created_at) = 2024`
 - [ ] `DATE(created_at) = '2024-05-01'`
 - [x] `created_at >= '2024-01-01' AND created_at < '2025-01-01'`

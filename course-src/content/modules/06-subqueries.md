@@ -34,7 +34,7 @@ Two facts make scalar subqueries powerful:
 - If the subquery returns **no rows**, its value is **NULL** rather than an error. That's how "return NULL if there is no second-highest salary" is done (#176).
 - If it returns **more than one row**, MySQL raises *Subquery returns more than 1 row* (error 1242).
 
-:::gotcha
+:::gotcha A scalar subquery must return one row {ask: What does MySQL do when it returns several, and what does this page do?}
 This page's engine (SQLite) quietly uses the first row when a scalar subquery returns several, instead of raising MySQL's error 1242. If a Check fails with a surprising value, make sure your scalar subquery really returns at most one row: add the right condition, an aggregate, or `LIMIT 1`.
 :::
 
@@ -61,7 +61,7 @@ ORDER BY orders DESC, c.name
 LIMIT 5;
 ```
 
-:::work
+:::work Correlated subqueries on big tables
 The optimizer often rewrites correlated subqueries into joins, but not always. On big tables, check the plan (Module 13). A join to a pre-aggregated derived table, or a window function, is frequently the faster formulation of the same question.
 :::
 
@@ -142,7 +142,7 @@ SELECT
 - **Several steps of aggregation**: a derived table or CTE.
 - **Need columns from both sides**: a join.
 
-:::dialect
+:::dialect MySQL limits on subqueries
 Everything here is standard SQL and works in PostgreSQL and SQL Server. Two MySQL-specific limits: no `LIMIT` directly inside `IN (subquery)` (error 1235, so wrap it in a derived table), and a DELETE/UPDATE can't select from its own target table in a subquery (error 1093, see Module 11).
 :::
 

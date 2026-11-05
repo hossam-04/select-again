@@ -64,7 +64,7 @@ EXCEPT
 SELECT city FROM customers;
 ```
 
-:::dialect Version check
+:::dialect Version check {ask: Which MySQL version do INTERSECT and EXCEPT need, and what do you use before it?}
 MySQL only added `INTERSECT` and `EXCEPT` in **8.0.31** (late 2022). On older servers, and whenever you're unsure which version a judge runs, write them as `IN` / `EXISTS` (intersection) and `NOT EXISTS` (difference). PostgreSQL and SQL Server have had both for decades. Oracle calls `EXCEPT` `MINUS`.
 :::
 

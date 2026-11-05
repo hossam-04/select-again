@@ -34,7 +34,7 @@ ORDER BY ct.spent DESC;
 - A CTE can be referenced several times, which a derived table can't do without copy-pasting.
 - It exists only for this one statement. For something reusable across queries, use a view.
 
-:::dialect
+:::dialect CTEs across versions and databases
 CTEs arrived in **MySQL 8.0**. On 5.7 you'd need derived tables. PostgreSQL may materialize or inline a CTE (you can force it with `MATERIALIZED` / `NOT MATERIALIZED`). MySQL decides on its own and may merge a CTE into the outer query just like a derived table.
 :::
 
@@ -143,7 +143,7 @@ HAVING team_size > 0
 ORDER BY budget DESC;
 ```
 
-:::interview When interviewers ask for recursion
+:::interview When interviewers ask for recursion {card} {ask: Which questions call for a recursive CTE, and what do you state first?}
 "Find all reports (direct and indirect)", "generate missing dates", "compute each node's level": these are the recursive-CTE signals. State the anchor, the recursive step and the stop condition out loud before writing any SQL.
 :::
 

@@ -9,7 +9,7 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
 const course = read('build/course.json');
-const LIBS = ['lib/sqltok.js', 'lib/mysql-udf.js', 'lib/mysql-compat.js', 'lib/engine-core.js', 'lib/checker.js', 'lib/progress.js'];
+const LIBS = ['lib/sqltok.js', 'lib/mysql-udf.js', 'lib/mysql-compat.js', 'lib/engine-core.js', 'lib/checker.js', 'lib/slug.js', 'lib/cardlist.js', 'lib/leitner.js', 'lib/progress.js'];
 const scriptSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\!--');
 // Function replacements: the payloads contain `$` sequences that string replacement would interpret.
 const page = read('template/page.html')

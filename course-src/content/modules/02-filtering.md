@@ -170,7 +170,7 @@ Comparisons treat NULL as unknown, but `GROUP BY`, `DISTINCT` and `ORDER BY` put
 - [ ] an error
 > `5 <> NULL` is UNKNOWN, and `TRUE AND UNKNOWN` is UNKNOWN. In a WHERE clause, that row would be filtered out.
 
-? Which condition finds rows where `a` and `b` are equal **or both NULL**?
+? Which condition finds rows where `a` and `b` are equal **or both NULL**? {nooptions}
 - [ ] `a = b`
 - [ ] `a = b OR a = NULL`
 - [x] `a <=> b`

@@ -17,6 +17,8 @@
     for (const q of m.quizzes) quizById[q.id] = q;
   }
   const pad2 = (n) => String(n).padStart(2, '0');
+  const CARDS = window.CardList.expand(COURSE.cards || [], problems);
+  const cardByHash = new Map(CARDS.map((c) => [c.h, c]));
 
   // ------------------------------------------------------------------ DOM helpers
   function el(tag, attrs, ...kids) {
@@ -92,14 +94,22 @@
   // ------------------------------------------------------------------ storage (this browser only)
   const store = (() => {
     const KEY = 'select-again:v1';
+    // A copy of the flashcard schedule: copies of the page from before flashcards drop it from the main save.
+    const BACKUP = 'select-again:v1:cards';
     const P = window.ProgressCode;
-    let raw = null;
-    try { raw = localStorage.getItem(KEY); } catch (e) { /* storage unavailable: progress lasts for this visit only */ }
+    let raw = null, backup = null;
+    try { raw = localStorage.getItem(KEY); backup = localStorage.getItem(BACKUP); } catch (e) { /* storage unavailable: progress lasts for this visit only */ }
     // quiz: quiz id -> { right, total, at } from the last time it was finished.
-    const state = P.load(raw, { solved: {}, tried: {}, drafts: {}, done: {}, quiz: {}, last: '', play: '', playDb: 'sample' });
+    // cards: card id -> [box, reviewDay]; cardAdd: module id -> time added early; cardNew: [day, new cards seen].
+    const state = P.load(raw, { solved: {}, tried: {}, drafts: {}, done: {}, quiz: {}, cards: {}, cardAdd: {}, cardNew: [0, 0], last: '', play: '', playDb: 'sample' });
+    const restored = P.restoreBackup(state, backup);
     let timer;
     const write = () => {
-      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+      timer = null;
+      try {
+        localStorage.setItem(KEY, JSON.stringify(state));
+        localStorage.setItem(BACKUP, P.backupOf(state));
+      } catch (e) { /* ignore */ }
     };
     const save = () => {
       clearTimeout(timer);
@@ -107,10 +117,18 @@
     };
     const saveNow = () => {
       clearTimeout(timer);
+      timer = null;
       write();
     };
-    const known = { problems: new Set(Object.keys(problems)), modules: new Set(Object.keys(moduleById)), quizzes: new Set(Object.keys(quizById)) };
-    const exportCode = () => P.encode(state);
+    // Leaving the page writes a save that is still waiting on its delay (a rating made just before closing).
+    // Only then: writing on every exit would overwrite progress another tab saved since.
+    window.addEventListener('pagehide', () => { if (timer) saveNow(); });
+    const known = {
+      problems: new Set(Object.keys(problems)), modules: new Set(Object.keys(moduleById)), quizzes: new Set(Object.keys(quizById)),
+      cards: new Map(CARDS.map((c) => [c.h, c.id])),
+    };
+    const hashOf = new Map(CARDS.map((c) => [c.id, c.h]));
+    const exportCode = () => P.encode(state, hashOf);
     function importCode(text) {
       const r = P.decode(text);
       if (!r.ok) return r;
@@ -118,6 +136,8 @@
       saveNow();
       return { ok: true, message: P.summary(n) };
     }
+    // Put a restored schedule back into the main save straight away.
+    if (restored) saveNow();
     return { state, save, saveNow, exportCode, importCode };
   })();
 
@@ -302,7 +322,7 @@
       el('div', { class: 'meter', role: 'img', 'aria-label': `${doneMods} of ${modules.length} modules finished` }, el('i', { style: `width:${(100 * doneMods) / modules.length}%` })),
     ));
     const links = el('nav', { class: 'side-block side-links', 'aria-label': 'Pages' },
-      [['home', 'Home'], ['problems', 'All problems'], ['playground', 'Playground'], ['cheatsheet', 'Cheat sheet']].map(([id, label]) =>
+      [['home', 'Home'], ['problems', 'All problems'], ['cards', 'Flashcards'], ['playground', 'Playground'], ['cheatsheet', 'Cheat sheet']].map(([id, label]) =>
         el('a', { href: `#${id}`, 'aria-current': page === id || (id === 'home' && !page) ? 'page' : null }, label)));
     frag.append(links);
     const list = el('nav', { class: 'side-block', 'aria-label': 'Modules' }, el('div', { class: 'side-label' }, 'Modules'));
@@ -427,13 +447,13 @@
     host.append(score);
   }
 
-  const slug = (s) => s.toLowerCase().replace(/<[^>]+>/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+  const slug = window.Slug.slug;
   function hydrateProse(root, pageId) {
     root.querySelectorAll('.example[data-ex]').forEach(hydrateExample);
     root.querySelectorAll('.quiz[data-quiz]').forEach(hydrateQuiz);
     const used = new Set();
     root.querySelectorAll('h2, h3').forEach((h) => {
-      let id = slug(h.textContent);
+      let id = h.dataset.id || slug(h.textContent);
       while (used.has(id)) id += '-x';
       used.add(id);
       h.id = `${pageId}.${id}`;
@@ -490,6 +510,7 @@
     });
     return el('div', { class: 'progress-io' },
       el('p', null, 'Progress is saved in this browser only. To move it, for example from the downloaded file to the online version, copy your progress code here, paste it into the other copy and press Import there. Importing adds to the progress already in that browser and never removes any.'),
+      el('p', { class: 'meta' }, 'The code includes your flashcard schedule. Copies of the page downloaded before November 2026 can’t read it: download sql-course.html again first.'),
       box,
       el('div', { class: 'row' }, copyBtn, importBtn, msg));
   }
@@ -521,6 +542,7 @@
         el('div', { class: 'actions' },
           lastLabel ? el('a', { class: 'btn primary', href: `#${last}` }, lastLabel) : el('a', { class: 'btn primary', href: `#${modules[0].id}` }, 'Start with the warm-up'),
           el('a', { class: 'btn', href: '#problems' }, 'Browse problems'),
+          flashcardsButton(),
           el('a', { class: 'btn ghost', href: '#cheatsheet' }, 'Cheat sheet'))),
       el('div', { class: 'stats' },
         el('div', { class: 'q', html: '<span class="t-k">SELECT</span> difficulty, solved, total\n<span class="t-k">FROM</span> my_progress;' }),
@@ -549,7 +571,8 @@
       el('div', null, el('h3', null, 'It runs in your browser'), el('p', null, `Every example and problem runs on SQLite ${COURSE.meta.sqliteVersion} compiled to JavaScript, loaded once from a CDN. Nothing you type leaves this page.`)),
       el('div', null, el('h3', null, 'It speaks MySQL'), el('p', null, 'A compatibility layer adds MySQL functions and syntax (IF, DATE_ADD … INTERVAL, GROUP_CONCAT … SEPARATOR, REGEXP, decimal division) and warns when MySQL would reject a query that runs here.')),
       el('div', null, el('h3', null, 'Checked like LeetCode'), el('p', null, 'Check runs your query on the example data plus hidden edge cases — ties, NULLs, empty tables — and shows exactly which rows are missing or extra.')),
-      el('div', null, el('h3', null, 'Progress stays here'), el('p', null, 'Solved problems, finished modules, quiz scores and your drafts are saved in this browser only. Another browser or a private window starts fresh; a progress code, below, carries them over.')));
+      el('div', null, el('h3', null, 'Flashcards bring it back'), el('p', null, `${CARDS.length} recall cards are made from the lessons, the cheat sheet and the problems' wrong answers. Finish a module or solve a problem and its cards join your deck, coming back after 1, 3, 7, 16, 35 and 80 days.`)),
+      el('div', null, el('h3', null, 'Progress stays here'), el('p', null, 'Solved problems, finished modules, quiz scores, drafts and your flashcard schedule are saved in this browser only. Another browser or a private window starts fresh; a progress code, below, carries them over.')));
     main.replaceChildren(el('div', { class: 'home' }, hero,
       el('div', { class: 'section-head' }, el('h2', null, 'The course'), el('p', null, 'Work top to bottom, or jump to what feels rusty.')), map,
       el('div', { class: 'section-head' }, el('h2', null, 'How this page works')), how,
@@ -580,6 +603,7 @@
         el('span', null, el('b', null, `~${m.minutes} min`)),
         m.examples.length ? el('span', null, el('b', null, m.examples.length), ' runnable examples') : null,
         m.problems.length ? el('span', null, el('b', null, `${pr.solved}/${pr.total}`), ' problems solved') : null,
+        moduleCardCount(m.id) ? el('a', { class: 'fc-link', href: `#cards.${m.id}` }, el('b', null, moduleCardCount(m.id)), ' flashcards') : null,
         doneBtn),
       clauseTrail(m.clauses));
     const prose = el('div', { class: 'prose', html: m.html });
@@ -918,12 +942,32 @@
 
   // ------------------------------------------------------------------ playground
   let playDb = null;
-  let playDbName = store.state.playDb || 'sample';
-  function renderPlayground() {
+  // sample | empty | p<problem id> (its example data) | m:<module>:<data name> (a module's example data)
+  function playData(name) {
+    if (name === 'sample') return { label: 'Sample shop database', short: 'sample shop', setup: COURSE.sampleDb.setup };
+    if (name === 'empty') return { label: 'Empty database', short: 'empty db', setup: '' };
+    let m = /^p(\d+)$/.exec(name || '');
+    if (m && problems[m[1]]) return { label: `#${m[1]} example data`, short: `#${m[1]} data`, setup: problems[m[1]].datasets[0].setup };
+    m = /^m:([\w-]+):([\w-]+)$/.exec(name || '');
+    if (m && moduleById[m[1]] && moduleById[m[1]].dbs[m[2]] !== undefined) return { label: `Module ${pad2(moduleById[m[1]].num)} data: ${m[2]}`, short: m[2], setup: moduleById[m[1]].dbs[m[2]] };
+    return null;
+  }
+  let playDbName = playData(store.state.playDb) ? store.state.playDb : 'sample';
+  function renderPlayground(section) {
     setTitle('Playground');
+    // #playground.card<n>-<hash>: load SQL snippet n of a flashcard, with the data it needs.
+    const load = /^card(\d)-([\w-]{5})$/.exec(section || '');
+    const loadCard = load && cardByHash.get(load[2]);
+    const loadSpec = loadCard && playSpec(loadCard, Number(load[1]));
+    if (loadSpec && playData(loadSpec.db)) {
+      playDbName = loadSpec.db;
+      store.state.playDb = playDbName;
+      if (playDb) { playDb.close(); playDb = null; }
+      history.replaceState(null, '', '#playground');
+    }
+    const options = ['sample', 'empty'].concat(playDbName !== 'sample' && playDbName !== 'empty' ? [playDbName] : []);
     const dbSelect = el('select', { id: 'play-db', 'aria-label': 'Database' },
-      el('option', { value: 'sample', selected: playDbName === 'sample' }, 'Sample shop database'),
-      el('option', { value: 'empty', selected: playDbName === 'empty' }, 'Empty database'));
+      options.map((name) => el('option', { value: name, selected: playDbName === name }, playData(name).label)));
     const resetDb = el('button', { class: 'btn small', type: 'button' }, icon('reset', 14), 'Reset data');
     const tablesHost = el('div');
     const out = el('div', { class: 'work-out' }, el('div', { class: 'placeholder' }, 'Tables you create here stay until you reset or reload the page.'));
@@ -936,7 +980,7 @@
     function drawSchema(schema) {
       tablesHost.replaceChildren();
       const names = Object.keys(schema);
-      if (!names.length) { tablesHost.append(el('div', { class: 'sb-empty' }, 'No tables yet. Try CREATE TABLE …')); return; }
+      if (!names.length) { tablesHost.append(el('div', { class: 'sb-empty' }, !playDb && playDbName.startsWith('m:') ? 'Loading the tables…' : 'No tables yet. Try CREATE TABLE …')); return; }
       names.forEach((name, i) => {
         tablesHost.append(el('details', { open: i < 2 ? true : null },
           el('summary', null, el('span', null, name), el('small', null, `${schema[name].length} cols`)),
@@ -945,12 +989,19 @@
     }
     const staticSchema = () => {
       if (playDbName === 'empty') return {};
-      return Object.fromEntries(COURSE.sampleDb.tables.map((t) => [t.name, t.columns.map((c) => c.name)]));
+      if (playDbName === 'sample') return Object.fromEntries(COURSE.sampleDb.tables.map((t) => [t.name, t.columns.map((c) => c.name)]));
+      const p = /^p(\d+)$/.exec(playDbName);
+      if (p) return Object.fromEntries(problems[p[1]].schema.map((t) => [t.name, t.columns.map((c) => c.name)]));
+      return {};
     };
     drawSchema(playDb ? Engine.api.schema(playDb) : staticSchema());
+    // A module's example data has no table list in the page: build it and show what is really there.
+    if (!playDb && playDbName.startsWith('m:')) {
+      ensureDb().then(() => drawSchema(Engine.api.schema(playDb)), () => tablesHost.replaceChildren(el('div', { class: 'sb-empty' }, 'The engine could not load, so the tables can’t be shown.')));
+    }
     async function ensureDb() {
       await Engine.load();
-      if (!playDb) playDb = Engine.fresh(playDbName === 'sample' ? COURSE.sampleDb.setup : '');
+      if (!playDb) playDb = Engine.fresh(playData(playDbName).setup);
       return playDb;
     }
     async function run() {
@@ -964,7 +1015,7 @@
     function resetData() {
       if (playDb) { playDb.close(); playDb = null; }
       drawSchema(staticSchema());
-      out.replaceChildren(el('div', { class: 'placeholder' }, playDbName === 'sample' ? 'Sample data restored.' : 'Empty database ready.'));
+      out.replaceChildren(el('div', { class: 'placeholder' }, playDbName === 'empty' ? 'Empty database ready.' : `${playData(playDbName).label}: restored.`));
     }
     runBtn.addEventListener('click', run);
     resetDb.addEventListener('click', resetData);
@@ -978,15 +1029,20 @@
           el('div', { class: 'sb-head' }, dbSelect, el('div', null, resetDb)),
           tablesHost),
         el('div', { class: 'work-card' },
-          el('div', { class: 'work-title' }, el('span', null, 'Query'), el('span', null, playDbName === 'sample' ? 'sample shop' : 'empty db')),
+          el('div', { class: 'work-title' }, el('span', null, 'Query'), el('span', null, playData(playDbName).short)),
           edHost,
           el('div', { class: 'work-bar' }, runBtn, el('span', { class: 'spacer' }), el('span', { class: 'kbd', style: 'border:0' }, 'click a column name to insert it')),
           out))));
+    if (loadSpec) {
+      editor.setValue(loadSpec.sql);
+      requestAnimationFrame(() => editor.focus());
+      toast('Loaded from a flashcard, on fresh data — Ctrl+Z undoes it'.replace('Ctrl', isMac ? '⌘' : 'Ctrl'));
+    }
     requestAnimationFrame(() => editor.refresh());
   }
 
   // ------------------------------------------------------------------ cheat sheet & 404
-  function renderCheatsheet() {
+  function renderCheatsheet(section) {
     setTitle('Cheat sheet');
     const grid = el('div', { class: 'sheet-grid', html: COURSE.cheatsheet || '' });
     main.replaceChildren(el('div', { class: 'sheet' },
@@ -994,6 +1050,8 @@
       el('h1', { class: 'title' }, 'MySQL cheat sheet'),
       el('p', { class: 'lede' }, 'The syntax and patterns from the course on one page. Tables like t, a and b are placeholders; try the ideas on the sample shop in the Playground.'),
       grid));
+    const target = section && document.getElementById(`cheatsheet.${section}`);
+    if (target) requestAnimationFrame(() => target.scrollIntoView());
   }
   function renderNotFound() {
     setTitle('Not found');
@@ -1001,23 +1059,341 @@
       el('p', { class: 'lede' }, 'That link doesn’t match a module or problem.'), el('p', null, el('a', { class: 'btn', href: '#home' }, 'Go to the course home'))));
   }
 
+  // ------------------------------------------------------------------ flashcards
+  // Cards come from the build (COURSE.cards). Each points at data the page already has: a quiz question, a
+  // callout in a module's HTML, a problem's trap or solution, an example's computed output, or cheat-sheet text.
+  const L = window.Leitner;
+  const today = () => L.dayOf(Date.now());
+  const sheetTitles = (() => {
+    const out = {};
+    for (const m of String(COURSE.cheatsheet || '').matchAll(/<h2 id="cheatsheet\.([^"]+)">([\s\S]*?)<\/h2>/g)) out[m[1]] = m[2];
+    return out;
+  })();
+  const calloutCache = new Map();
+  function calloutOf(card) {
+    if (!calloutCache.has(card.m)) {
+      const t = document.createElement('template');
+      t.innerHTML = moduleById[card.m].html;
+      calloutCache.set(card.m, t.content);
+    }
+    const aside = calloutCache.get(card.m).querySelector(`aside[data-card="${CSS.escape(card.id)}"]`);
+    if (!aside) return null;
+    const label = aside.querySelector('.callout-label');
+    const titleEl = label.querySelector('span');
+    const body = [...aside.children].filter((n) => n !== label);
+    return {
+      kind: [...aside.classList].find((c) => c !== 'callout'),
+      label: label.firstChild ? label.firstChild.textContent.trim() : 'Callout',
+      titleHtml: titleEl ? titleEl.innerHTML.replace(/^·\s*/, '') : '',
+      body: body.map((n) => n.outerHTML).join(''),
+    };
+  }
+  const tablesLine = (p) => el('p', { class: 'fc-tables' }, el('span', { class: 'sr' }, 'Tables: '),
+    p.schema.map((t, i) => [i ? ' · ' : '', el('code', null, `${t.name}(${t.columns.map((c) => c.name).join(', ')})`)]));
+  // Where a card's SQL can run in the playground: the database it needs, plus SQL to append (the after-query).
+  function playSpec(card, which) {
+    if (card.k === 'trap' || card.k === 'approach') {
+      const p = problems[card.p];
+      if (p.kind === 'function') return null;
+      const sql = which === 0 && card.k === 'trap' ? p.traps[card.t].sql : p.solution.sql;
+      return { db: `p${p.id}`, sql: p.kind === 'dml' ? `${sql}\n\n-- The table afterwards:\n${p.after}` : sql };
+    }
+    if (card.k === 'out') {
+      const { ex } = exampleById[card.ex];
+      return { db: ex.db === 'empty' ? 'empty' : `m:${card.m}:${ex.db}`, sql: ex.sql };
+    }
+    return null;
+  }
+  function cardSql(card, which, sql) {
+    const pre = el('pre', { class: 'code sql' }, el('code', { html: window.SQLTok.highlight(sql) }));
+    const spec = playSpec(card, which);
+    const bar = el('div', { class: 'fc-sqlbar' },
+      spec ? el('a', { class: 'btn small', href: `#playground.card${which}-${card.h}` }, icon('play', 14), 'Open in the playground') : null,
+      el('button', { class: 'btn ghost small', type: 'button', onclick: () => copyText(sql, pre) }, icon('copy', 14), 'Copy'));
+    return el('div', { class: 'fc-sql' }, pre, bar);
+  }
+  // What a card shows: { label, front: Node[], back: Node[], link: { href, text } }.
+  function cardFace(card) {
+    const m = moduleById[card.m];
+    const mod = m ? m.title : '';
+    if (card.k === 'quiz') {
+      const q = quizById[card.q[0]].questions[card.q[1]];
+      return {
+        label: `Quiz · ${mod}`,
+        front: [el('p', { class: 'fc-q', html: q.q }), card.o ? el('ul', { class: 'fc-opts' }, q.options.map((o) => el('li', { html: o }))) : null],
+        back: [el('p', { class: 'fc-answer' }, el('b', null, 'Answer: '), el('span', { html: q.options[q.answer] })), el('div', { class: 'prose', html: q.explain })],
+        link: { href: `#${card.m}${card.s ? '.' + card.s : ''}`, text: `${mod} › quiz` },
+      };
+    }
+    if (card.k === 'callout') {
+      const c = calloutOf(card) || { label: 'Callout', titleHtml: '', body: '', kind: '' };
+      return {
+        label: `${c.label} · ${mod}`, kind: c.kind,
+        front: [el('p', { class: 'fc-title', html: c.titleHtml }), el('p', { class: 'fc-q', html: card.a })],
+        back: [el('div', { class: 'prose', html: c.body })],
+        link: { href: `#${card.m}${card.s ? '.' + card.s : ''}`, text: `${mod} › ${c.label.toLowerCase()}` },
+      };
+    }
+    if (card.k === 'sheet') {
+      const sec = sheetTitles[card.s] || 'Cheat sheet';
+      return {
+        label: `Cheat sheet · ${sec}`,
+        front: [el('p', { class: 'fc-q', html: card.f })],
+        back: [el('p', { class: 'fc-answer', html: card.b })],
+        link: { href: `#cheatsheet.${card.s}`, text: `Cheat sheet › ${sec}` },
+      };
+    }
+    if (card.k === 'out') {
+      const { ex } = exampleById[card.ex];
+      const host = el('div', { class: 'out fc-out' });
+      renderOutput(host, ex.output);
+      return {
+        label: `What does this return? · ${mod}`,
+        front: [
+          ex.db !== 'empty' ? el('details', { class: 'setup' }, el('summary', null, 'Data: ', el('code', null, ex.db)),
+            el('pre', { class: 'code sql' }, el('code', { html: window.SQLTok.highlight(m.dbs[ex.db] || '') }))) : null,
+          cardSql(card, 0, ex.sql), el('p', { class: 'fc-q' }, 'What does this return?')],
+        back: [host],
+        link: { href: `#${card.m}${card.s ? '.' + card.s : ''}`, text: `${mod} › example` },
+      };
+    }
+    const p = problems[card.p];
+    const link = { href: `#p${p.id}`, text: `#${p.id} ${p.title}` };
+    if (card.k === 'trap') {
+      const t = p.traps[card.t];
+      return {
+        label: `What’s wrong? · ${mod}`,
+        front: [el('div', { class: 'prose fc-task', html: p.taskHtml }), tablesLine(p), cardSql(card, 0, t.sql), el('p', { class: 'fc-q' }, 'What’s wrong with this query?')],
+        back: [el('div', { class: 'prose', html: t.html }), el('p', { class: 'fc-sub' }, 'A correct solution'), cardSql(card, 1, p.solution.sql)],
+        link,
+      };
+    }
+    return {
+      label: `Which approach? · ${mod}`,
+      front: [el('div', { class: 'prose fc-task', html: p.taskHtml }), tablesLine(p), el('p', { class: 'fc-q' }, 'Which approach would you take?')],
+      back: [el('p', { class: 'fc-patterns' }, p.patterns.map((t) => el('span', { class: 'chip' }, t))), el('div', { class: 'prose', html: p.solution.html }), cardSql(card, 1, p.solution.sql)],
+      link,
+    };
+  }
+
+  const fmtDays = (n) => (n === 1 ? '1 day' : `${n} days`);
+  function dueLabel(day) {
+    const d = day - today();
+    if (d <= 0) return 'today';
+    if (d === 1) return 'tomorrow';
+    return `in ${fmtDays(d)}`;
+  }
+  const moduleCardCount = (id) => CARDS.filter((c) => c.m === id).length;
+  const ownCards = (id) => CARDS.filter((c) => c.m === id && c.p === undefined);
+  const moduleInDeck = (id) => !!(store.state.done[id] || store.state.cardAdd[id]);
+  function addModule(id) {
+    if (!moduleInDeck(id)) { store.state.cardAdd[id] = Date.now(); store.saveNow(); }
+  }
+
+  let session = null; // { cards, i, revealed, tally, module }
+  // `focus`: a selector to focus after drawing, when an action on this page redraws it (so focus isn't lost).
+  function renderCards(section, focus) {
+    session = null;
+    const filter = moduleById[section] ? section : '';
+    setTitle(filter ? `Flashcards: ${moduleById[filter].title}` : 'Flashcards');
+    const n = L.counts(CARDS, store.state, today(), filter || undefined);
+    const toStudy = n.due + n.fresh;
+    const select = el('select', { id: 'card-module', 'aria-label': 'Show cards from' },
+      el('option', { value: '' }, `All modules (${CARDS.length} cards)`),
+      modules.filter((m) => moduleCardCount(m.id)).map((m) => el('option', { value: m.id, selected: m.id === filter ? true : null }, `${pad2(m.num)} ${m.title} (${moduleCardCount(m.id)})`)));
+    select.addEventListener('change', () => { location.hash = select.value ? `cards.${select.value}` : 'cards'; });
+    const reviewBtn = el('button', { class: 'btn primary', type: 'button', disabled: toStudy ? null : true }, icon('play', 14), toStudy ? `Review ${toStudy} card${toStudy === 1 ? '' : 's'}` : 'Nothing to review');
+    reviewBtn.addEventListener('click', () => startSession(filter, false));
+    const actions = [reviewBtn];
+    if (filter) {
+      if (!moduleInDeck(filter) && ownCards(filter).length) {
+        actions.push(el('button', { class: 'btn', type: 'button', onclick: () => { addModule(filter); renderCards(filter, '.fc-actions .study'); announceIn('.fc-status .msg', `Added ${moduleById[filter].title} to your deck.`); } }, 'Add this module to my deck'));
+      }
+      actions.push(el('button', { class: 'btn study', type: 'button', onclick: () => startSession(filter, true) }, 'Study this module'));
+    }
+    const status = toStudy
+      ? `${n.due} due and ${n.fresh} new to learn${filter ? '' : ` (up to ${L.NEW_PER_DAY} new a day)`}.`
+      : n.deck
+        ? `All caught up.${n.next !== null ? ` The next card is due ${dueLabel(n.next)}.` : ''}`
+        : filter ? 'None of these cards are in your deck yet. Finish the module, add it, or study it now.' : 'Your deck is empty. Cards join it when you finish a module or solve a problem, or when you add a module below.';
+    const rows = modules.filter((m) => moduleCardCount(m.id)).map((m) => {
+      const c = L.counts(CARDS, store.state, today(), m.id);
+      const add = !moduleInDeck(m.id) && ownCards(m.id).length
+        ? el('button', { class: 'btn small', type: 'button', 'aria-label': `Add ${m.title} to my deck`, onclick: () => { addModule(m.id); renderCards(filter, `button[data-study="${m.id}"]`); announceIn('.fc-status .msg', `Added ${m.title} to your deck.`); } }, 'Add') : null;
+      const study = el('button', { class: 'btn small', type: 'button', 'data-study': m.id, 'aria-label': `Study ${m.title}`, onclick: () => startSession(m.id, true) }, 'Study');
+      return el('tr', null,
+        el('td', { class: 'n' }, pad2(m.num)),
+        el('td', { class: 'm' }, el('a', { href: `#cards.${m.id}` }, m.title)),
+        el('td', { class: 'num c-total' }, c.total), el('td', { class: 'num' }, c.deck), el('td', { class: 'num' }, c.due || el('span', { class: 'null' }, '—')),
+        el('td', { class: 'act' }, add, study));
+    });
+    let armed = false, armTimer = null;
+    const resetBtn = el('button', { class: 'btn ghost small', type: 'button' }, icon('reset', 14), 'Reset schedule');
+    const resetMsg = el('span', { class: 'msg', 'aria-live': 'polite' });
+    resetBtn.addEventListener('click', () => {
+      const reviewed = Object.keys(store.state.cards).length;
+      if (!armed) {
+        armed = true;
+        resetBtn.replaceChildren(icon('reset', 14), `Click again to forget ${reviewed} review${reviewed === 1 ? '' : 's'}`);
+        clearTimeout(armTimer);
+        armTimer = setTimeout(() => { armed = false; resetBtn.replaceChildren(icon('reset', 14), 'Reset schedule'); }, 4000);
+        return;
+      }
+      clearTimeout(armTimer);
+      L.reset(store.state);
+      store.saveNow();
+      renderCards(filter, '.fc-reset button');
+      announceIn('.fc-reset .msg', 'Schedule reset. Cards from finished modules and solved problems are back as new cards.');
+    });
+    main.replaceChildren(el('div', { class: 'home fc-overview' },
+      el('div', { class: 'kicker' }, 'Recall practice'),
+      el('h1', { class: 'title', tabindex: '-1' }, filter ? `Flashcards: ${moduleById[filter].title}` : 'Flashcards'),
+      el('p', { class: 'lede' }, 'See the prompt, answer in your head, then show the answer and say how it went. Cards come back after 1, 3, 7, 16, 35 and 80 days as you keep getting them right. Cards join your deck when you finish a module or solve a problem.'),
+      el('div', { class: 'fc-controls' }, select, el('div', { class: 'fc-actions' }, actions)),
+      el('p', { class: 'fc-status' }, status, ' ', el('span', { class: 'msg', 'aria-live': 'polite' })),
+      el('div', { class: 'fc-keys' }, 'Keys while reviewing: ', kbd('Space'), ' shows the answer, ', kbd('1'), ' again, ', kbd('2'), ' good, ', kbd('3'), ' easy.'),
+      el('div', { class: 'course-map fc-table' },
+        el('div', { class: 'q', html: '<span class="t-k">SELECT</span> module, cards, in_deck, due\n<span class="t-k">FROM</span> flashcards;' }),
+        el('div', { class: 'result' }, el('table', { class: 'grid' },
+          el('thead', null, el('tr', null, el('th', null, 'n'), el('th', null, 'module'), el('th', { class: 'num c-total' }, 'cards'), el('th', { class: 'num' }, 'in_deck'), el('th', { class: 'num' }, 'due'), el('th', null, el('span', { class: 'sr' }, 'Actions')))),
+          el('tbody', null, rows))),
+        resultFoot(rows.length, null, `${n.deck} of ${n.total} cards in your deck`)),
+      el('div', { class: 'fc-reset' }, resetBtn, resetMsg,
+        el('p', { class: 'meta' }, 'Reset forgets every review and every module you added early. Importing a progress code afterwards brings its schedule back, because importing only adds.'))));
+    if (focus) {
+      const target = main.querySelector(focus) || main.querySelector('.fc-overview .btn.primary:not([disabled])') || main.querySelector('.fc-overview h1');
+      target.focus({ preventScroll: true });
+    }
+  }
+  function announceIn(selector, text) {
+    requestAnimationFrame(() => { const n = main.querySelector(selector); if (n) n.textContent = text; });
+  }
+
+  function startSession(module, study) {
+    if (study && module) addModule(module);
+    const q = L.queue(CARDS, store.state, today(), { module: module || undefined, study });
+    const list = q.due.concat(q.fresh);
+    session = { cards: list, i: 0, revealed: false, tally: { 1: 0, 2: 0, 3: 0 }, module, study };
+    if (!list.length) { renderCards(module, '.fc-overview h1'); announceIn('.fc-status .msg', 'Nothing to review here right now.'); return; }
+    setTitle('Reviewing flashcards');
+    drawCard();
+  }
+
+  function drawCard() {
+    const s = session;
+    const card = s.cards[s.i];
+    s.revealed = false;
+    const face = cardFace(card);
+    const entry = window.Leitner.isEntry(store.state.cards[card.id]) ? store.state.cards[card.id] : null;
+    const live = el('div', { class: 'sr', 'aria-live': 'polite', id: 'fc-live' });
+    const showBtn = el('button', { class: 'btn primary fc-show', type: 'button' }, 'Show answer', kbd('Space'));
+    const back = el('section', { class: 'fc-back', hidden: true, tabindex: '-1', 'aria-label': 'Answer' }, face.back);
+    const rate = (grade, name) => el('button', { class: `btn fc-rate g${grade}`, type: 'button', 'data-grade': grade, onclick: () => rateCard(grade) },
+      el('span', { class: 'kbd' }, String(grade)), el('b', null, name), el('small', null, fmtDays(L.intervalAfter(entry, grade))));
+    const rating = el('div', { class: 'fc-rating', role: 'group', 'aria-label': 'How did it go?', hidden: true },
+      rate(1, 'Again'), rate(2, 'Good'), rate(3, 'Easy'));
+    const source = el('p', { class: 'fc-source', hidden: true }, 'From ', el('a', { href: face.link.href }, face.link.text));
+    showBtn.addEventListener('click', reveal);
+    const article = el('article', { class: 'fc-card' + (face.kind ? ` k-${face.kind}` : ''), 'aria-labelledby': 'fc-label' },
+      el('div', { class: 'fc-label', id: 'fc-label' }, el('span', null, face.label), entry ? null : el('span', { class: 'chip accent' }, 'New')),
+      el('div', { class: 'fc-front' }, face.front),
+      el('div', { class: 'fc-showbar' }, showBtn),
+      back, source, rating);
+    main.replaceChildren(el('div', { class: 'fc-session' },
+      el('div', { class: 'fc-top' },
+        el('span', { class: 'fc-count' }, `Card ${s.i + 1} of ${s.cards.length}${s.module ? ` · ${moduleById[s.module].title}` : ''}`),
+        el('a', { class: 'btn ghost small', href: s.module ? `#cards.${s.module}` : '#cards', onclick: (e) => { e.preventDefault(); endSession(); } }, 'End session')),
+      el('div', { class: 'meter', role: 'progressbar', 'aria-label': 'Session progress', 'aria-valuemin': '0', 'aria-valuemax': String(s.cards.length), 'aria-valuenow': String(s.i) }, el('i', { style: `width:${(100 * s.i) / s.cards.length}%` })),
+      article, live));
+    function reveal() {
+      if (s.revealed) return;
+      s.revealed = true;
+      showBtn.parentNode.hidden = true;
+      back.hidden = false;
+      source.hidden = false;
+      rating.hidden = false;
+      back.focus({ preventScroll: true });
+      back.scrollIntoView({ block: 'nearest' });
+      const text = back.textContent.replace(/\s+/g, ' ').trim();
+      live.textContent = 'Answer: ' + (text.length > 900 ? text.slice(0, 900) + '…' : text) + ' Rate it: 1 again, 2 good, 3 easy.';
+    }
+    s.reveal = reveal;
+    showBtn.focus({ preventScroll: true });
+  }
+
+  function rateCard(grade) {
+    const s = session;
+    if (!s || !s.revealed) return;
+    L.review(store.state, s.cards[s.i], grade, today());
+    store.save();
+    s.tally[grade]++;
+    s.i++;
+    if (s.i < s.cards.length) { drawCard(); window.scrollTo(0, 0); return; }
+    store.saveNow();
+    drawSummary();
+  }
+
+  function endSession() {
+    const s = session;
+    store.saveNow();
+    if (s && s.i > 0) drawSummary();
+    else { const m = s && s.module; session = null; if (location.hash === (m ? `#cards.${m}` : '#cards')) renderCards(m, '.fc-overview .btn.primary'); else location.hash = m ? `cards.${m}` : 'cards'; }
+  }
+
+  function drawSummary() {
+    const s = session;
+    session = null;
+    const done = s.tally[1] + s.tally[2] + s.tally[3];
+    const n = L.counts(CARDS, store.state, today(), s.module || undefined);
+    const heading = el('h1', { class: 'title', tabindex: '-1' }, `${done} card${done === 1 ? '' : 's'} reviewed`);
+    main.replaceChildren(el('div', { class: 'fc-session fc-done' },
+      el('div', { class: 'kicker' }, 'Session finished'),
+      heading,
+      el('p', { class: 'lede' }, `${s.tally[3]} easy, ${s.tally[2]} good, ${s.tally[1]} again. ` +
+        (n.due + n.fresh ? `${n.due + n.fresh} more ${n.due + n.fresh === 1 ? 'is' : 'are'} ready.` : n.next !== null ? `The next card is due ${dueLabel(n.next)}.` : '')),
+      el('div', { class: 'fc-actions' },
+        n.due + n.fresh ? el('button', { class: 'btn primary', type: 'button', onclick: () => startSession(s.module, false) }, 'Keep going') : null,
+        el('a', { class: 'btn', href: s.module ? `#cards.${s.module}` : '#cards' }, 'Back to flashcards'),
+        el('a', { class: 'btn ghost', href: '#home' }, 'Home'))));
+    setTitle('Flashcards');
+    heading.focus({ preventScroll: true });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (!session || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.closest('input, textarea, select, [contenteditable], .CodeMirror, summary'))) return;
+    if ((e.key === ' ' || e.code === 'Space') && !session.revealed) { e.preventDefault(); session.reveal(); return; }
+    if (session.revealed && ['1', '2', '3'].includes(e.key)) { e.preventDefault(); rateCard(Number(e.key)); }
+  });
+
+  function flashcardsButton() {
+    const n = L.counts(CARDS, store.state, today());
+    const ready = n.due + n.fresh;
+    return el('a', { class: 'btn', href: '#cards', id: 'home-cards' }, 'Flashcards',
+      el('span', { class: 'fc-badge' + (n.due ? ' due' : '') }, n.due ? `${n.due} due` : ready ? `${ready} new` : n.deck ? 'all done' : 'start'));
+  }
+
   // ------------------------------------------------------------------ router
   function route() {
     const hash = decodeURIComponent(location.hash.replace(/^#/, ''));
     const [page, section] = hash.split('.');
     setDrawer(false);
+    session = null;
     if (!page || page === 'home') renderHome();
     else if (/^p\d+$/.test(page)) renderProblem(Number(page.slice(1)));
     else if (page === 'problems') renderProblems();
-    else if (page === 'playground') renderPlayground();
-    else if (page === 'cheatsheet') renderCheatsheet();
+    else if (page === 'playground') renderPlayground(section);
+    else if (page === 'cheatsheet') renderCheatsheet(section);
+    else if (page === 'cards') renderCards(section);
     else if (moduleById[page]) renderModule(moduleById[page], section);
     else renderNotFound();
     renderSidebar(page || 'home');
     document.querySelectorAll('.toplinks a').forEach((a) => a.setAttribute('aria-current', a.dataset.nav === page ? 'page' : 'false'));
-    if (!section) window.scrollTo(0, 0);
+    if (!section || page === 'cards' || page === 'playground') window.scrollTo(0, 0);
     main.focus({ preventScroll: true });
-    if (page && page !== 'home') { store.state.last = hash; store.save(); }
+    if (page && page !== 'home' && page !== 'playground') { store.state.last = hash; store.save(); }
+    else if (page === 'playground') { store.state.last = 'playground'; store.save(); }
   }
   window.addEventListener('hashchange', route);
   route();

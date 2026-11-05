@@ -1,13 +1,13 @@
-## Evaluation order
+## Evaluation order {module=basics}
 
-`FROM` + joins → `WHERE` → `GROUP BY` → `HAVING` → `SELECT` (window functions here) → `DISTINCT` → `ORDER BY` → `LIMIT`
+{{`FROM` + joins → `WHERE` → `GROUP BY` → `HAVING` → `SELECT` (window functions here) → `DISTINCT` → `ORDER BY` → `LIMIT`}}
 
 - WHERE can't see SELECT aliases or aggregates.
 - HAVING filters groups. MySQL lets it use SELECT aliases.
 - Window functions can't be filtered in WHERE, so wrap the query.
 - ORDER BY can use aliases, expressions and positions.
 
-## Query skeleton
+## Query skeleton {module=basics}
 
 ```sql
 WITH step AS (                 -- one row per …
@@ -25,16 +25,16 @@ ORDER BY a, rnk
 LIMIT 10 OFFSET 0;             -- MySQL also: LIMIT 0, 10
 ```
 
-## NULL rules
+## NULL rules {module=filtering}
 
 - Any comparison with NULL is UNKNOWN, and WHERE keeps only TRUE.
 - Test NULL with `IS NULL` / `IS NOT NULL`. `a <=> b` is NULL-safe equality.
 - `NOT IN (list containing NULL)` matches nothing, so use `NOT EXISTS`.
 - Aggregates skip NULLs. `COUNT(*)` counts rows. `SUM` over no rows is NULL.
 - GROUP BY, DISTINCT and ORDER BY treat NULLs as one group. In MySQL, NULLs sort first when ascending.
-- Fallbacks: `IFNULL(x, 0)`, `COALESCE(a, b, c)`. `NULLIF(a, b)` returns NULL when a = b.
+- Fallbacks: `IFNULL(x, 0)`, `COALESCE(a, b, c)`. `NULLIF(a, b)` returns {{NULL when a = b}}.
 
-## Joins
+## Joins {module=joins}
 
 | Join | Keeps |
 |---|---|
@@ -53,7 +53,7 @@ SELECT a.* FROM a WHERE EXISTS (SELECT 1 FROM b WHERE b.a_id = a.id);
 
 Conditions on the right table of a LEFT JOIN belong in `ON`, not `WHERE`. After a LEFT JOIN, `COUNT(b.id)` counts matches.
 
-## Aggregation
+## Aggregation {module=aggregation}
 
 ```sql
 SELECT k,
@@ -70,7 +70,7 @@ HAVING COUNT(*) >= 2;
 - Every selected column must be grouped or aggregated (ONLY_FULL_GROUP_BY).
 - `COUNT(cond)` counts false rows too (it skips only NULL). Use `SUM(cond)`.
 
-## Window functions
+## Window functions {module=windows}
 
 ```sql
 fn() OVER (PARTITION BY p ORDER BY o ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
@@ -84,10 +84,10 @@ fn() OVER (PARTITION BY p ORDER BY o ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)
 
 - `LAG(x, n, default)`, `LEAD(x)`, `FIRST_VALUE`, `LAST_VALUE` (widen the frame!), `NTH_VALUE`, `NTILE(n)`.
 - `SUM(x) OVER (ORDER BY d)` is a running total. The default frame is RANGE, so ties are included together.
-- Share of total: `x / SUM(x) OVER (PARTITION BY g)`.
+- Share of total: {{`x / SUM(x) OVER (PARTITION BY g)`}}.
 - `rank`, `lag`, `lead`… are reserved words in MySQL 8. Backtick them as names.
 
-## CTEs and recursion
+## CTEs and recursion {module=ctes}
 
 ```sql
 WITH RECURSIVE seq AS (
@@ -103,14 +103,14 @@ GROUP BY seq.d;
 
 Hierarchy: the anchor is `WHERE manager_id IS NULL`, and the step is `JOIN cte ON e.manager_id = cte.id`. The anchor fixes column types (`CAST(x AS CHAR(200))`). The depth limit is `cte_max_recursion_depth` (1000).
 
-## Set operations
+## Set operations {module=sets}
 
 - `UNION` de-duplicates. `UNION ALL` keeps all rows and is cheaper.
-- Columns match by position, and names come from the first SELECT.
-- A final `ORDER BY`/`LIMIT` applies to the whole result. Per branch: `(SELECT … LIMIT 1) UNION ALL (SELECT … LIMIT 1)`.
+- Columns match {{by position}}, and names come from {{the first SELECT}}.
+- A final `ORDER BY`/`LIMIT` applies to {{the whole result}}. Per branch: `(SELECT … LIMIT 1) UNION ALL (SELECT … LIMIT 1)`.
 - `INTERSECT` / `EXCEPT` need MySQL 8.0.31+. Otherwise use `IN` / `NOT EXISTS`.
 
-## Patterns
+## Patterns {module=patterns}
 
 ```sql
 -- top N per group
@@ -130,7 +130,7 @@ SELECT AVG(v) FROM (SELECT v, ROW_NUMBER() OVER (ORDER BY v) rn, COUNT(*) OVER (
 WHERE rn IN (FLOOR((n + 1) / 2), CEIL((n + 1) / 2));
 ```
 
-## Dates (MySQL)
+## Dates (MySQL) {module=expressions}
 
 | Need | Expression |
 |---|---|
@@ -143,7 +143,7 @@ WHERE rn IN (FLOOR((n + 1) / 2), CEIL((n + 1) / 2));
 | strip time | `DATE(ts)` |
 | a whole day/year | `ts >= '2024-01-01' AND ts < '2025-01-01'` |
 
-## Strings
+## Strings {module=expressions}
 
 | Need | Expression |
 |---|---|
@@ -156,15 +156,15 @@ WHERE rn IN (FLOOR((n + 1) / 2), CEIL((n + 1) / 2));
 | patterns | `LIKE 'a%'`, `_` = one char; `REGEXP_LIKE(s, '^a', 'c')` for case-sensitive |
 | tidy | `TRIM`, `REPLACE(s, from, to)`, `LPAD(s, n, '0')` |
 
-## Numbers and types
+## Numbers and types {module=expressions}
 
 - `7 / 2` is 3.5 in MySQL (3 in PostgreSQL). Use `7 DIV 2` = 3 and `7 % 2` = 1.
-- `ROUND(x, 2)` rounds exact values (DECIMAL, integers) half away from zero, and FLOAT/DOUBLE half to even. Also `TRUNCATE(x, 2)`, `CEIL`, `FLOOR`.
+- `ROUND(x, 2)` rounds exact values (DECIMAL, integers) {{half away from zero}}, and FLOAT/DOUBLE {{half to even}}. Also `TRUNCATE(x, 2)`, `CEIL`, `FLOOR`.
 - `CAST(x AS SIGNED | UNSIGNED | DECIMAL(10,2) | CHAR | DATE)`.
 - Money: `DECIMAL`, never FLOAT.
 - Conditions are 1/0, so `SUM(cond)` and `AVG(cond)` work.
 
-## Changing data
+## Changing data {module=modifying}
 
 ```sql
 INSERT INTO t (a, b) VALUES (1, 'x'), (2, 'y');
@@ -178,7 +178,7 @@ INSERT IGNORE INTO t …;          -- skip duplicate keys
 
 Run the WHERE as a SELECT first. Error 1093 means you need to wrap the self-referencing subquery in a derived table.
 
-## Transactions
+## Transactions {module=modifying}
 
 ```sql
 START TRANSACTION;
@@ -189,27 +189,27 @@ COMMIT;                          -- or ROLLBACK;
 
 InnoDB defaults to REPEATABLE READ (MVCC snapshots). Prevent lost updates with `SET x = x - 1`, `SELECT … FOR UPDATE`, or version columns.
 
-## Indexing rules
+## Indexing rules {module=performance}
 
 - Index the columns used in WHERE, JOIN ON, and ORDER BY/GROUP BY.
 - Composite order: equality columns first, then the range or sort column. Leftmost prefix only.
 - Keep indexed columns bare: `d >= … AND d < …`, not `YEAR(d) = …`.
-- `LIKE 'abc%'` can use an index. `LIKE '%abc'` can't.
-- A covering index answers from the index alone.
+- `LIKE 'abc%'` {{can}} use an index. `LIKE '%abc'` {{can't}}.
+- A covering index answers {{from the index alone}}.
 - Every index slows writes, so check `EXPLAIN` before and after.
 
-## MySQL gotchas
+## MySQL gotchas {module=playbook}
 
-- `||` is OR, not concatenation.
-- REGEXP and `=` on text are case-insensitive by default.
+- `||` is {{OR, not concatenation}}.
+- REGEXP and `=` on text are {{case-insensitive}} by default.
 - Aliases in WHERE are an error (1054).
-- `LIMIT`/`OFFSET` take literals only.
+- `LIMIT`/`OFFSET` take {{literals only}}.
 - `NOT IN` + NULL returns nothing.
 - `BETWEEN` on DATETIME misses the last day's times.
 - `rank`, `rows`, `groups` are reserved words.
 - `d + 1` on a DATE is the number 20240132. Use `INTERVAL` and `DATEDIFF`.
 - `ROW_NUMBER()`/`RANK()` are BIGINT UNSIGNED, so `ROW_NUMBER() … - id` below zero is error 1690.
-- `'2024' = YEAR(d)` compares as numbers (true), but `'abc' = 0` is also true.
+- `'2024' = YEAR(d)` compares as numbers (true), but `'abc' = 0` is also {{true}}.
 - INTERSECT/EXCEPT need 8.0.31+.
-- `SET a = b, b = a` doesn't swap.
+- `SET a = b, b = a` {{doesn't swap}}.
 - `GROUP_CONCAT` truncates at 1024 bytes by default.

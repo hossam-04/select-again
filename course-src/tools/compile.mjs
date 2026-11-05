@@ -8,6 +8,10 @@ import { Marked } from 'marked';
 import { engine, SQLTok } from '../lib/engine-node.mjs';
 import '../lib/checker.js';
 import { loadProblem } from './leetcode.mjs';
+import { buildCards, sheetCards, cardText, cardLink, calloutId, calloutMarkers, textOf } from './cards.mjs';
+import '../lib/slug.js';
+import '../lib/cardlist.js';
+import { isDeepStrictEqual } from 'node:util';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CONTENT = path.join(ROOT, 'content');
@@ -23,6 +27,9 @@ const only = (() => {
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const SAMPLE_DB = fs.readFileSync(path.join(CONTENT, 'sample-db.sql'), 'utf8');
+// Every SQL text the build has run (examples, setups, solutions, alternatives, traps): SQL on a card must be one.
+const ranSql = new Set();
+const ran = (sql) => { ranSql.add(String(sql).trim()); return sql; };
 
 // ---------------------------------------------------------------- problems
 async function loadProblems() {
@@ -67,6 +74,7 @@ function tableDump(db, name) {
 }
 
 function execFor(p, setup, sql, args) {
+  ran(sql);
   const db = engine.open(setup);
   try {
     let r;
@@ -157,18 +165,19 @@ function compileProblem(p) {
     out.datasets.push({ name: ds.name, setup, tables, runs: expectedList });
     if (i === 0 && tables.every((t) => t.rows.length === 0)) err(where, 'example data is empty');
   });
-  if (verify) {
-    // traps must fail somewhere
-    for (const [ti, trap] of out.traps.entries()) {
-      let caught = false;
-      for (const ds of out.datasets) {
-        for (const run of ds.runs) {
-          const r = execFor(p, ds.setup, trap.sql, run.args);
-          if (r.error || (r.warnings && r.warnings.length) || !compare(run.expected, r.last, { ordered: p.order }).ok) caught = true;
-        }
+  // Traps must fail somewhere. Checked even with --only: each one is also a "What's wrong?" flashcard.
+  for (const [ti, trap] of out.traps.entries()) {
+    let caught = false;
+    for (const ds of out.datasets) {
+      for (const run of ds.runs) {
+        const r = execFor(p, ds.setup, trap.sql, run.args);
+        if (r.error || (r.warnings && r.warnings.length) || !compare(run.expected, r.last, { ordered: p.order }).ok) caught = true;
       }
-      if (!caught) err(where, `trap ${ti + 1} is not caught by any dataset: ${trap.sql.slice(0, 80)}`);
     }
+    trap.caught = caught;
+    if (!caught) err(where, `trap ${ti + 1} is not caught by any dataset: ${trap.sql.slice(0, 80)}`);
+  }
+  if (verify) {
     // LeetCode's own examples
     if (p.lcSkipExample) warn(where, `LeetCode example check skipped: ${p.lcSkipExample}`);
     if (!p.lcSkipExample) lc.examples.forEach((ex, i) => {
@@ -210,6 +219,7 @@ function makeParser() {
         const opts = Object.fromEntries(info.slice(1).map((w) => { const [k, v] = w.split('='); return [k, v === undefined ? true : v]; }));
         if (kind === 'sql' && opts.run && exampleSink) {
           const ex = { id: `${exampleSink.module}-ex${exampleSink.examples.length + 1}`, sql: text.replace(/\s+$/, ''), db: opts.db || 'sample', expectError: !!opts.error, expectWarning: !!opts.warn, title: opts.title ? String(opts.title).replace(/_/g, ' ') : '' };
+          if (opts.nocard) ex.nocard = true;
           exampleSink.examples.push(ex);
           return `<div class="example" data-ex="${ex.id}"></div>\n`;
         }
@@ -248,7 +258,17 @@ function parseQuiz(body, where) {
   let cur = null;
   for (const raw of body.split('\n')) {
     const line = raw.trimEnd();
-    if (line.startsWith('? ')) { cur = { q: line.slice(2), options: [], answer: -1, explain: '' }; qs.push(cur); continue; }
+    if (line.startsWith('? ')) {
+      // `{options}` at the end: the flashcard shows the options too, because the question needs them.
+      // `{nooptions}`: it reads as a recall question without them (silences the build's reminder).
+      let q = line.slice(2);
+      let showOptions = false;
+      let marked = false;
+      q = q.replace(/\s*\{(no)?options\}\s*$/, (m, no) => { showOptions = !no; marked = true; return ''; });
+      cur = { q, options: [], answer: -1, explain: '', showOptions, marked };
+      qs.push(cur);
+      continue;
+    }
     if (!cur) continue;
     const opt = /^- \[( |x)\] (.*)$/.exec(line);
     if (opt) { if (opt[1] === 'x') cur.answer = cur.options.length; cur.options.push(opt[2]); continue; }
@@ -259,7 +279,7 @@ function parseQuiz(body, where) {
     if (q.options.length < 2) err(where, `quiz question needs 2+ options: ${q.q}`);
     if (!q.explain) warn(where, `quiz question without explanation: ${q.q}`);
   }
-  return qs.map((q) => ({ q: mdParser.parseInline(q.q), options: q.options.map((o) => mdParser.parseInline(o)), answer: q.answer, explain: mdParser.parse(q.explain) }));
+  return qs.map((q) => ({ q: mdParser.parseInline(q.q), options: q.options.map((o) => mdParser.parseInline(o)), answer: q.answer, explain: mdParser.parse(q.explain), ...(q.showOptions ? { showOptions: true } : {}), ...(q.marked ? { marked: true } : {}) }));
 }
 
 function renderBlocks(md, ctx, where) {
@@ -282,7 +302,18 @@ function renderBlocks(md, ctx, where) {
       html = `<div class="quiz" data-quiz="${id}"></div>`;
     } else {
       const label = { gotcha: 'Gotcha', tip: 'Tip', note: 'Note', dialect: 'Other databases', interview: 'Interview angle', work: 'On the job', key: 'Key idea' }[kind] || kind;
-      html = `<aside class="callout ${kind}"><div class="callout-label">${esc(label)}${title ? ` <span>· ${mdParser.parseInline(title)}</span>` : ''}</div>${mdParser.parse(body.join('\n'))}</aside>`;
+      // `{card}` / `{nocard}` / `{ask: …}` on the title line decide the flashcard; the page never shows them.
+      const mk = calloutMarkers(kind, title);
+      const titleHtml = mk.title ? mdParser.parseInline(mk.title) : '';
+      const bodyHtml = mdParser.parse(body.join('\n'));
+      let attr = '';
+      if (mk.carded && !mk.title) err(where, `:::${kind} becomes a flashcard, so it needs a title (or mark it {nocard})`);
+      else if (mk.carded) {
+        const id = calloutId(ctx.module, kind, titleHtml);
+        ctx.callouts.push({ id, kind, titleHtml, bodyHtml, ask: mk.ask ? mdParser.parseInline(mk.ask) : '', carded: true });
+        attr = ` data-card="${esc(id)}"`;
+      } else if (mk.ask) warn(where, `:::${kind} ${mk.title}: {ask} on a callout that is not a card`);
+      html = `<aside class="callout ${kind}"${attr}><div class="callout-label">${esc(label)}${titleHtml ? ` <span>· ${titleHtml}</span>` : ''}</div>${bodyHtml}</aside>`;
     }
     blocks.push(html);
     out.push('', `<!--BLOCK:${blocks.length - 1}-->`, '');
@@ -290,6 +321,17 @@ function renderBlocks(md, ctx, where) {
   let html = mdParser.parse(out.join('\n'));
   html = html.replace(/<!--BLOCK:(\d+)-->/g, (m, n) => blocks[+n]);
   return html;
+}
+
+// Gives each h2/h3 its anchor (data-id), the same slug the page links to: `#module.anchor`.
+function withHeadingIds(html) {
+  const used = new Set();
+  return html.replace(/<h([23])>([\s\S]*?)<\/h\1>/g, (all, n, inner) => {
+    let id = globalThis.Slug.slug(textOf(inner));
+    while (used.has(id)) id += '-x';
+    used.add(id);
+    return `<h${n} data-id="${id}">${inner}</h${n}>`;
+  });
 }
 
 function parseFrontMatter(src) {
@@ -312,6 +354,8 @@ function runExample(ex, dbs, where) {
     return (d.base ? setupOf(d.base) + '\n' : '') + d.sql;
   };
   const setup = setupOf(ex.db);
+  if (setup) ran(setup);
+  ran(ex.sql);
   const db = engine.open(setup);
   const r = engine.run(db, ex.sql);
   db.close();
@@ -325,17 +369,39 @@ function runExample(ex, dbs, where) {
 }
 
 function compileModule(file, index) {
-  const src = fs.readFileSync(file, 'utf8');
+  return compileModuleSource(fs.readFileSync(file, 'utf8'), index);
+}
+
+export function compileModuleSource(src, index) {
   const { meta, body } = parseFrontMatter(src);
   const id = meta.id;
   const where = `module ${id}`;
-  const ctx = { module: id, examples: [], dbs: {}, quizzes: [] };
+  const ctx = { module: id, examples: [], dbs: {}, quizzes: [], callouts: [] };
   exampleSink = ctx;
-  const html = renderBlocks(inlineRefs(body, where), ctx, where);
+  const html = withHeadingIds(renderBlocks(inlineRefs(body, where), ctx, where));
   exampleSink = null;
+  // The section each card-bearing block sits in (its link back) and its place on the page (study order).
+  const headings = [];
+  let section = '';
+  let order = 0;
+  const seen = { card: 0, quiz: 0, ex: 0 };
+  for (const mm of html.matchAll(/<h[23] data-id="([^"]+)"|data-(card|quiz|ex)="[^"]+"/g)) {
+    order++;
+    if (mm[1]) { section = mm[1]; headings.push(mm[1]); continue; }
+    const list = { card: ctx.callouts, quiz: ctx.quizzes, ex: ctx.examples }[mm[2]];
+    Object.assign(list[seen[mm[2]]++], { section, order });
+  }
   const dbSetups = {};
   const resolve = (name) => (name === 'sample' ? SAMPLE_DB : name === 'empty' ? '' : (ctx.dbs[name].base ? resolve(ctx.dbs[name].base) + '\n' : '') + ctx.dbs[name].sql);
   for (const name of Object.keys(ctx.dbs)) dbSetups[name] = resolve(name);
+  const rowsIn = (setup) => {
+    const db = engine.open(setup);
+    try {
+      const names = (db.exec("SELECT name FROM sqlite_master WHERE type = 'table'")[0] || { values: [] }).values.map((v) => v[0]);
+      return names.reduce((n, t) => n + db.exec(`SELECT COUNT(*) FROM "${t}"`)[0].values[0][0], 0);
+    } finally { db.close(); }
+  };
+  for (const ex of ctx.examples) if (ex.db !== 'sample' && ex.db !== 'empty' && dbSetups[ex.db] !== undefined) ex.setupRows = rowsIn(dbSetups[ex.db]);
   for (const ex of ctx.examples) {
     ex.output = runExample(ex, ctx.dbs, where);
     if (ex.expectWarning && !ex.output.warnings.length) err(where, `${ex.id} was expected to raise a MySQL warning but did not`);
@@ -346,8 +412,95 @@ function compileModule(file, index) {
     id, num: index, title: meta.title, summary: meta.summary || '', clauses: (meta.clauses || '').split(/\s*,\s*/).filter(Boolean),
     kicker: meta.kicker || '', minutes: Math.max(5, Math.round(words / 180) + ctx.examples.length), html,
     examples: ctx.examples, dbs: dbSetups, quizzes: ctx.quizzes, problems: [],
+    callouts: ctx.callouts, headings,
   };
 }
+
+// ---------------------------------------------------------------- flashcards
+// Builds the cards and checks every one of them. Removes the build-only fields from modules and problems.
+function compileCards(modules, problems, sheetSections) {
+  const byId = Object.fromEntries(modules.map((m) => [m.id, m]));
+  for (const s of sheetSections) {
+    if (!s.module) err(`cheat sheet "${s.title}"`, 'no {module=…} on the heading, so its flashcards have no module');
+    else if (!byId[s.module]) err(`cheat sheet "${s.title}"`, `unknown module ${s.module}`);
+  }
+  const sheet = sheetCards(sheetSections);
+  for (const e of sheet.errors) err('flashcards', e);
+  const cards = buildCards({ modules, problems, sheet: sheet.cards });
+  const calloutById = {};
+  const exampleById = {};
+  for (const m of modules) {
+    for (const c of m.callouts) calloutById[c.id] = c;
+    for (const ex of m.examples) exampleById[ex.id] = ex;
+    for (const qz of m.quizzes) for (const q of qz.questions) {
+      if (!q.marked && /\bwhich (query|queries|condition|statement|index|of these)\b/i.test(textOf(q.q))) {
+        warn(`module ${m.id}`, `quiz question may need its options on the flashcard (add {options}): ${textOf(q.q)}`);
+      }
+    }
+  }
+  const ctx = { moduleById: byId, problems, calloutById, exampleById };
+  const sheetAnchors = new Set(sheetSections.map((s) => s.anchor));
+  const ids = new Map();
+  const hashes = new Map();
+  for (const c of cards) {
+    const where = `card ${c.id}`;
+    if (ids.has(c.id)) err(where, 'two cards have this id: make the titles or questions differ');
+    ids.set(c.id, c);
+    if (hashes.has(c.h) && hashes.get(c.h) !== c.id) err(where, `its progress-code hash ${c.h} collides with ${hashes.get(c.h)}: reword one`);
+    hashes.set(c.h, c.id);
+    let t;
+    try { t = cardText(c, ctx); } catch (e) { err(where, `its source is missing (${e.message})`); continue; }
+    if (!t.front.trim()) err(where, 'empty front');
+    if (!t.back.trim()) err(where, 'empty back');
+    for (const sql of t.sql) if (!ranSql.has(String(sql).trim())) err(where, 'carries SQL the build never ran');
+    for (const h of t.html || []) if (/<pre\b/.test(h)) err(where, 'carries a code block the build never runs');
+    const link = cardLink(c);
+    if (c.k === 'trap' || c.k === 'approach') { if (!problems[c.p]) err(where, `links to ${link}, which is not a problem`); }
+    else if (c.k === 'sheet') { if (!sheetAnchors.has(c.s)) err(where, `links to ${link}, which is not a cheat-sheet section`); }
+    else if (!byId[c.m]) err(where, `unknown module ${c.m}`);
+    else if (c.s && !byId[c.m].headings.includes(c.s)) err(where, `links to ${link}, which is not a heading in that module`);
+    if (c.k === 'trap' && problems[c.p] && !problems[c.p].traps[c.t].caught) err(where, 'this wrong answer no longer fails any test');
+    if (c.k === 'out') {
+      const ex = exampleById[c.ex];
+      const setup = ex.db === 'empty' ? '' : byId[c.m].dbs[ex.db];
+      const db = engine.open(setup);
+      const r = engine.run(db, ex.sql);
+      db.close();
+      const same = !r.error && r.last && r.last.rows.length === ex.output.total && r.last.columns.join('\u0000') === ex.output.columns.join('\u0000') &&
+        compare({ columns: ex.output.columns, rows: ex.output.rows }, r.last, { ordered: true }).ok;
+      if (!same) err(where, `"What does this return?" output no longer matches a fresh run of ${ex.id}`);
+    }
+  }
+  for (const m of modules) {
+    delete m.callouts;
+    delete m.headings;
+    for (const ex of m.examples) { delete ex.section; delete ex.order; delete ex.setupRows; }
+    for (const qz of m.quizzes) { delete qz.section; delete qz.order; for (const q of qz.questions) { delete q.showOptions; delete q.marked; } }
+  }
+  for (const p of Object.values(problems)) for (const t of p.traps) delete t.caught;
+  return cards;
+}
+
+function cardSummary(cards, modules) {
+  const kinds = ['quiz', 'callout', 'sheet', 'trap', 'approach', 'out'];
+  const count = (list) => kinds.map((k) => list.filter((c) => c.k === k).length);
+  const lines = [`flashcards ${cards.length}: ` + kinds.map((k, i) => `${k} ${count(cards)[i]}`).join(', ')];
+  for (const m of modules) {
+    const mine = cards.filter((c) => c.m === m.id);
+    lines.push(`  ${String(m.num).padStart(2, '0')} ${m.id.padEnd(12)} ${String(mine.length).padStart(3)}  (${kinds.map((k, i) => `${k} ${count(mine)[i]}`).join(', ')})`);
+  }
+  return lines.join('\n');
+}
+
+// For tests: set up the Markdown parser and the problem titles that [[p:…]] references need.
+export function initCompiler(problemTitles) {
+  mdParser = makeParser();
+  problemIndex = Object.fromEntries(Object.entries(problemTitles || {}).map(([id, title]) => [id, { title }]));
+  errors.length = 0;
+  warnings.length = 0;
+}
+export const getParser = () => mdParser;
+export { errors as compileErrors, loadProblems, CONTENT };
 
 // ---------------------------------------------------------------- main
 async function main() {
@@ -380,21 +533,27 @@ async function main() {
   sdb.close();
   let extra = {};
   const extraFile = path.join(CONTENT, 'extra.mjs');
-  if (fs.existsSync(extraFile)) extra = (await import(pathToFileURL(extraFile).href + '?t=' + Date.now())).default(mdParser, SQLTok);
+  if (fs.existsSync(extraFile)) extra = (await import(pathToFileURL(extraFile).href + '?t=' + Date.now())).default(mdParser, SQLTok, globalThis.Slug.slug);
+  const { sheetSections = [], ...extraData } = extra;
+  extra = extraData;
+  const cards = compileCards(modules, outProblems, sheetSections);
   const course = {
     meta: { builtAt: new Date().toISOString(), sqliteVersion, problemCount: Object.keys(outProblems).length },
     sampleDb: { setup: SAMPLE_DB, tables: sampleTables },
-    modules, problems: outProblems, ...extra,
+    modules, problems: outProblems, ...extra, cards: globalThis.CardList.compact(cards),
   };
+  // The page rebuilds the full cards from the compact list: it must get back exactly what the build checked.
+  if (!isDeepStrictEqual(globalThis.CardList.expand(course.cards, outProblems), cards)) err('flashcards', 'the compact card list does not expand back to the cards (lib/cardlist.js)');
   fs.mkdirSync(path.join(ROOT, 'build'), { recursive: true });
   fs.writeFileSync(path.join(ROOT, 'build', 'course.json'), JSON.stringify(course));
   const exCount = modules.reduce((n, m) => n + m.examples.length, 0);
   console.log(`modules ${modules.length}, examples ${exCount}, problems ${Object.keys(outProblems).length}, ` +
     `solutions+alternatives ${Object.values(outProblems).reduce((n, p) => n + 1 + p.alternatives.length, 0)}, traps ${Object.values(outProblems).reduce((n, p) => n + p.traps.length, 0)}`);
+  console.log(cardSummary(cards, modules));
   for (const w of warnings) console.log('warn  ' + w);
   for (const e of errors) console.log('ERROR ' + e);
   console.log(errors.length ? `\n${errors.length} error(s)` : '\nall checks passed');
   process.exitCode = errors.length ? 1 : 0;
 }
 
-await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

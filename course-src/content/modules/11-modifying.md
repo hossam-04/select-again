@@ -33,7 +33,7 @@ WHERE order_date < '2024-03-01';
 SELECT * FROM order_archive;
 ```
 
-:::tip AUTO_INCREMENT
+:::tip AUTO_INCREMENT {card} {ask: How do you insert into an AUTO_INCREMENT table, and how do you get the new id?}
 With `id INT AUTO_INCREMENT PRIMARY KEY`, leave `id` out of the column list and MySQL assigns the next number. `LAST_INSERT_ID()` returns it for the current connection, which is safe even with other sessions inserting at the same time.
 :::
 
@@ -75,7 +75,7 @@ JOIN departments d ON d.dept_id = e.dept_id
 WHERE d.location = 'Cairo';
 ```
 
-:::dialect
+:::dialect UPDATE with a join elsewhere
 PostgreSQL writes this as `UPDATE employees e SET salary = … FROM departments d WHERE d.dept_id = e.dept_id AND …`. SQL Server uses `UPDATE e SET … FROM employees e JOIN departments d ON …`. Same idea, three spellings.
 :::
 
@@ -143,7 +143,7 @@ SELECT * FROM users;
 `REPLACE` deletes the conflicting row and inserts a new one. Columns you didn't supply revert to defaults, delete triggers fire, and `ON DELETE CASCADE` children disappear. Prefer `ON DUPLICATE KEY UPDATE`. `INSERT IGNORE` also silences other errors (bad data becomes warnings), so use it deliberately.
 :::
 
-:::dialect
+:::dialect Upserts in other databases
 PostgreSQL and SQLite use `INSERT … ON CONFLICT (key) DO UPDATE SET views = EXCLUDED.views + …`. SQL Server and Oracle have `MERGE`. MySQL 8.0.19+ lets you name the new row (`INSERT … AS new ON DUPLICATE KEY UPDATE views = new.views`) instead of the deprecated `VALUES(col)`.
 :::
 
@@ -216,7 +216,7 @@ Three standard fixes:
 Two transactions that lock rows in opposite orders will deadlock. InnoDB detects it, kills one of them (error 1213) and lets the other continue. Keep transactions short, touch rows in a consistent order, and have application code retry deadlock victims.
 :::
 
-:::tip Safe-update habits
+:::tip Safe-update habits {card} {ask: What do you do before an UPDATE or DELETE, and what does sql_safe_updates refuse?}
 Before running an UPDATE or DELETE, run the same WHERE as a `SELECT COUNT(*)` first. In a console, open a transaction so you can roll back. MySQL's `SET sql_safe_updates = 1` refuses UPDATE/DELETE without a key-based WHERE or a LIMIT.
 :::
 

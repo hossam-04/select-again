@@ -41,7 +41,7 @@ FROM employees
 WHERE emp_id <= 5;
 ```
 
-:::dialect
+:::dialect IF() versus CASE
 `IF()` is MySQL-only. `CASE` is standard and works in every database, so prefer it in code that might move. SQL Server has `IIF()`, and PostgreSQL booleans are `true`/`false` rather than 1/0: write `SUM(CASE WHEN cond THEN 1 ELSE 0 END)` or `COUNT(*) FILTER (WHERE cond)` there.
 :::
 
@@ -65,7 +65,7 @@ FROM products
 WHERE category = 'Computers';
 ```
 
-:::gotcha Percentages on LeetCode
+:::gotcha Percentages on LeetCode {ask: How do you compute a percentage rounded to 2 decimals?}
 Many problems ask for a percentage "rounded to 2 decimal places". Compute with a decimal on the left, then round once, at the end: `ROUND(100 * hits / total, 2)`. In MySQL `hits / total` is already decimal. In PostgreSQL it would be integer division unless you cast, so writing `100.0 * hits / total` is the portable habit.
 :::
 

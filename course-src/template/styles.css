@@ -497,3 +497,80 @@ table.ptable th:first-child, table.ptable td:first-child { width: 1%; padding-ri
 .cm-s-default .cm-variable-2, .cm-s-default .cm-variable-3 { color: var(--c-type); }
 .cm-s-default .cm-bracket { color: var(--ink-2); }
 .cm-s-default .cm-variable { color: var(--ink); }
+
+/* ---------- flashcards ---------- */
+.cloze { font: inherit; }                               /* the cheat sheet shows a card's hidden part as plain text */
+.fc-overview .lede { margin-bottom: 22px; }
+.fc-controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.fc-controls select { font: 14px var(--font-sans); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); max-width: 100%; min-width: 0; }
+.fc-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.fc-status { margin: 16px 0 4px; color: var(--ink-2); }
+.fc-status .msg { color: var(--ok); font-weight: 500; }
+.fc-keys { font-size: 13.5px; color: var(--ink-3); margin-bottom: 22px; }
+.fc-table table.grid td.act { white-space: nowrap; text-align: right; }
+.fc-table table.grid td.act .btn + .btn { margin-left: 6px; }
+.fc-table table.grid td.n { color: var(--ink-3); font-family: var(--font-mono); }
+.fc-reset { margin-top: 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.fc-reset .meta { flex-basis: 100%; margin-top: 4px; }
+.fc-reset .msg { font-size: 14px; color: var(--ink-2); }
+@media (max-width: 640px) {
+  .fc-table th:first-child, .fc-table td.n, .fc-table .c-total { display: none; }
+  .fc-table table.grid td, .fc-table table.grid th { padding-left: 9px; padding-right: 9px; }
+  .fc-table table.grid td.act .btn + .btn { margin-left: 4px; }
+}
+.fc-link { color: var(--ink-3); }
+.fc-link b { color: var(--accent); }
+.fc-badge { font: 600 11.5px/1 var(--font-mono); padding: 3px 6px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--rule); }
+.fc-badge.due { background: var(--mark); color: var(--mark-ink); border-color: transparent; }
+
+.fc-session { max-width: 780px; }
+.fc-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.fc-count { font: 500 13px/1.4 var(--font-mono); color: var(--ink-3); }
+.fc-session .meter { margin: 10px 0 18px; }
+.fc-card { border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); padding: 18px 20px 20px; min-width: 0; }
+.fc-label { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; font: 600 11.5px/1.4 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 12px; }
+.fc-label .chip { text-transform: none; letter-spacing: 0; }
+.fc-card.k-gotcha .fc-label > span:first-child { background: var(--mark); color: var(--mark-ink); padding: 3px 7px; border-radius: 4px; }
+.fc-card.k-key .fc-label > span:first-child { color: var(--accent); }
+.fc-front, .fc-back { min-width: 0; overflow-wrap: anywhere; }
+.fc-front > :first-child { margin-top: 0; }
+.fc-title { font: 600 21px/1.3 var(--font-cond); margin: 0 0 6px; }
+.fc-q { font-size: 17.5px; font-weight: 500; margin: 12px 0 0; }
+.fc-task { font-size: 15.5px; }
+.fc-task > :first-child { margin-top: 0; }
+.fc-tables { font-size: 13.5px; color: var(--ink-3); margin: 8px 0 0; }
+.fc-tables code { font-size: 12.5px; color: var(--ink-2); }
+.fc-q code, .fc-answer code, .fc-title code { font-size: .88em; background: var(--surface-2); border: 1px solid var(--rule-2); border-radius: 5px; padding: .06em .36em; overflow-wrap: anywhere; }
+.fc-opts { margin: 10px 0 0; padding-left: 20px; }
+.fc-opts li { margin: 4px 0; }
+.fc-front .blank { display: inline-block; min-width: 4.5em; border-bottom: 2px solid var(--ink-3); color: transparent; line-height: 1.1; vertical-align: baseline; }
+.fc-front .arrow, .fc-back .arrow { color: var(--ink-3); }
+.fc-back mark { background: var(--mark); color: var(--mark-ink); padding: 0 3px; border-radius: 3px; }
+.fc-back mark code { color: inherit; }
+.fc-showbar { margin-top: 20px; }
+.fc-back { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--rule); }
+.fc-back:focus { outline: none; }
+.fc-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.fc-answer { font-size: 16.5px; margin: 0 0 6px; }
+.fc-sub { font: 600 12px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3); margin: 18px 0 6px; }
+.fc-patterns { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.fc-sql { margin: 14px 0 0; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--surface-2); }
+.fc-sql pre.code { margin: 0; border: 0; border-radius: 0; background: transparent; }
+.fc-sql pre.code code { white-space: pre-wrap; overflow-wrap: anywhere; }   /* card SQL wraps: no sideways scroll on a phone */
+.fc-sqlbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--rule-2); background: var(--surface); }
+.fc-front details.setup { margin: 0 0 12px; }
+.fc-out { border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+.fc-source { font-size: 14px; color: var(--ink-3); margin: 14px 0 0; }
+.fc-rating { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
+.fc-rate { flex-direction: column; gap: 4px; padding: 10px 8px; white-space: normal; text-align: center; }
+.fc-rate b { font-weight: 600; font-size: 14.5px; }
+.fc-rate small { font: 12px/1.2 var(--font-mono); color: var(--ink-2); }
+.fc-rate .kbd { order: 3; }
+.fc-rate.g1 { border-color: var(--bad); }
+.fc-rate.g1 b { color: var(--bad); }
+.fc-rate.g2 { border-color: var(--accent); }
+.fc-rate.g2 b { color: var(--accent); }
+.fc-rate.g3 { border-color: var(--ok); }
+.fc-rate.g3 b { color: var(--ok); }
+.fc-done .fc-actions { margin-top: 22px; }
+.fc-done h1:focus, .fc-overview h1:focus { outline: none; }                    /* focused by script so the summary is read next; not a control */
