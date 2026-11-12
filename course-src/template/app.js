@@ -252,6 +252,14 @@
   }
 
   // ------------------------------------------------------------------ editor
+  // After a run, bring the result into view when a long query pushed it below the fold.
+  // Scrolls just enough to show it all, but never past its top edge (which stays below the top bar).
+  function revealOutput(node) {
+    const r = node.getBoundingClientRect();
+    if (!r.height || r.bottom <= window.innerHeight) return;
+    const delta = Math.min(r.bottom - window.innerHeight + 16, r.top - 90);
+    if (delta > 0) window.scrollBy(0, delta);
+  }
   function makeEditor(host, value, opts) {
     opts = opts || {};
     const keys = {};
@@ -265,7 +273,7 @@
       keys.Esc = (cm) => cm.getInputField().blur();
       const cm = window.CodeMirror(host, {
         value, mode: 'text/x-mysql', matchBrackets: true, autoCloseBrackets: true, indentUnit: 2, tabSize: 2,
-        viewportMargin: Infinity, lineWrapping: true, scrollbarStyle: 'null', placeholder: opts.placeholder || '', extraKeys: keys,
+        viewportMargin: Infinity, lineWrapping: true, scrollbarStyle: 'native', placeholder: opts.placeholder || '', extraKeys: keys,
         inputStyle: 'contenteditable', spellcheck: false,
       });
       cm.getInputField().setAttribute('aria-label', opts.label || 'SQL editor');
@@ -401,6 +409,7 @@
       const r = Engine.api.run(db, editor ? editor.getValue() : ex.sql);
       db.close();
       renderOutput(out, toOutput(r));
+      revealOutput(out);
       runBtn.disabled = false;
     }
     runBtn.addEventListener('click', run);
@@ -754,6 +763,7 @@
       const r = execute(p, sqlOverride || editor.getValue(), ds0.setup, run0.args);
       renderOutput(out, toOutput(r), { caption: caption || (p.kind === 'dml' ? `Table after your statement (example data): <code>${esc(p.after)}</code>` : p.kind === 'function' ? `Result of ${esc(p.fn.name)}(${run0.args.join(', ')}) on the example data` : 'Result on the example data') });
       if (!sqlOverride) markTried();
+      revealOutput(out);
       runBtn.disabled = false;
     }
     async function checkUser() {
@@ -822,7 +832,7 @@
         out.append(det);
       }
       done();
-      function done() { checkBtn.disabled = false; }
+      function done() { checkBtn.disabled = false; revealOutput(out); }
     }
     runBtn.addEventListener('click', () => runUser());
     checkBtn.addEventListener('click', () => checkUser());
@@ -1010,6 +1020,7 @@
       const r = Engine.api.run(playDb, editor.getValue());
       renderOutput(out, toOutput(r), { tall: true });
       drawSchema(Engine.api.schema(playDb));
+      revealOutput(out);
       runBtn.disabled = false;
     }
     function resetData() {
